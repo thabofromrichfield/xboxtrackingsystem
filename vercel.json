@@ -1,0 +1,47 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": "",
+  "outputDirectory": ".",
+  "trailingSlash": false,
+  "functions": {
+    "api/event.js": {
+      "memory": 256,
+      "maxDuration": 30
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/camera",
+      "destination": "/camera.html"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/(.*?)",
+      "headers": [
+        {
+          "key": "x-content-type-options",
+          "value": "nosniff"
+        },
+        {
+          "key": "referrer-policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "permissions-policy",
+          "value": "camera=(self), microphone=(), geolocation=()"
+        }
+      ]
+    },
+    {
+      "source": "/(src|assets)/(.*?)",
+      "headers": [
+        {
+          "key": "cache-control",
+          "value": "public, max-age=300, must-revalidate"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# node (this project has no build step — these only appear if you add tooling)
+node_modules/
+package-lock.json
+.svn/
+
+# local secrets / overrides
+.env
+.env.*
+*.local
+.vercel
+.wrangler/
+
+# runtime noise
+npm-debug.log*
+*.log
+.tmp/
+cache/
+snapshots-local/
