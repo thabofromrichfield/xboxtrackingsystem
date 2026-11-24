@@ -153,8 +153,18 @@ class CameraNode {
 
     window.addEventListener('pagehide', () => this.stop('page hidden'));
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden) this.log('backgrounded — keep this tab open for continuous monitoring', 'warn');
-      else this.log('foregrounded');
+      if (document.hidden) {
+        this.log('backgrounded — iOS/Android suspend camera access here, come back to this tab to resume', 'warn');
+        return;
+      }
+      const dead = !this.stream || this.stream.getVideoTracks().every((t) => t.readyState !== 'live');
+      if (this.running && dead) {
+        this.log('foregrounded — camera track was dropped, reopening…');
+        this.restartStream().then(() => this.heartbeat());
+      } else if (this.running) {
+        this.log('foregrounded — still live');
+        this.motion.reset();
+      }
     });
   }
 
@@ -396,9 +406,11 @@ class CameraNode {
 
     // 4. paint
     if (this.cfg.showOverlay !== false) {
-      const stage = $('#stage');
-      const ctx = sizeCanvas($('#overlay'), stage.clientWidth, stage.clientHeight);
-      drawOverlay(ctx, { cssW: stage.clientWidth, cssH: stage.clientHeight, videoW: video.videoWidth, videoH: video.videoHeight }, {
+      const box = $('#videoWrap');
+      const cssW = box.clientWidth || window.innerWidth;
+      const cssH = box.clientHeight || Math.round((cssW * 9) / 16);
+      const ctx = sizeCanvas($('#overlay'), cssW, cssH);
+      drawOverlay(ctx, { cssW, cssH, videoW: video.videoWidth, videoH: video.videoHeight }, {
         poses: poses.map((p) => ({ pts: p.landmarks, box: p.box, score: p.score })),
         motion: m,
         state,
