@@ -154,7 +154,7 @@
     <p class="hint">Point this control center at your Supabase project. <b>Leave both fields empty</b> to use the built-in <b>xbox system</b> project (<code>gfshxhqzsexpsahnuwkw</code>) — it is already wired up, so you normally do not need to change anything here.</p>
     <label class="fieldline">project URL (or just the 20-char ref)<input id="setUrl" placeholder="https://REF.supabase.co   ·   gfshxhqzsexpsahnuwkw" autocomplete="off" spellcheck="false" autocapitalize="off"></label>
     <label class="fieldline">publishable / anon key<input id="setKey" placeholder="sb_publishable_…   ·   eyJhbGciOi…" autocomplete="off" spellcheck="false" autocapitalize="off"></label>
-    <p class="fieldnote" id="setMsg">current: —</p>
+    <p class="fieldnote" id="setMsg" role="status" aria-live="polite">current: —</p>
     <div class="btnrow">
       <button class="btn primary" id="btnSettingsSave">test &amp; relink</button>
       <button class="btn ghost" id="btnSettingsTest">test only</button>

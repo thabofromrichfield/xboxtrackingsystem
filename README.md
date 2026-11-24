@@ -96,8 +96,29 @@ Applied as migration `create_xbox_detection_system`; the readable copy is
 RLS (single-tenant device mode): read on both tables, `insert` on events only for an existing un-archived
 camera, `update` allowed (dashboard tuning + acknowledge), no delete for `anon`. Registration/heartbeat go
 through the definer RPCs. The **publishable** key is baked into the bundle as a default (`src/config.js`) and can
-be overridden at runtime in ⚙ Settings; the **service-role** key exists only as a Vercel env var for the ingest
-function.
+be overridden at runtime in **⚙ Backend link**; the **service-role** key exists only as a Vercel env var for the
+ingest function.
+
+### ⚙ Backend link (control center)
+
+`⚙ Backend link` points the dashboard at a Supabase project without rebuilding anything.
+
+| button | what it does |
+| --- | --- |
+| **test & relink** | probes the project (`xbox_cameras` + `xbox_detection_events`), and only if it answers does it persist the values, rewire the client, force-refresh the wall + feed, restart Realtime/polling and close the panel. On failure the panel stays open with the error. |
+| **test only** | the same probe, nothing saved. |
+| **use defaults** | `localStorage` overrides cleared, built-in project restored. |
+| **close ✕**, Esc, click the dim backdrop | dismiss the panel. |
+
+Both fields are optional: leave one blank and that value stays the baked-in default. Paste tolerance — a bare
+20-char project ref, a host without `https://`, a quoted string, or a whole `…/rest/v1/…?select=*` URL all
+normalise to the bare project origin; unusable input is refused with a message rather than producing a silent
+fetch failure. A `sb_secret_…` key (or any `service_role` JWT) is refused outright — paste
+*Project Settings → API Keys → Publishable key*. If a previously saved override is later unusable, the app falls
+back to the defaults and says so instead of loading blank.
+
+Each node page shows which backend it is posting to in its log, and **reset backend link** returns a node to the
+defaults after you change project.
 
 ## 4. Any other camera (IP cam, RTSP, Raspberry Pi, ESP32, NVR)
 
