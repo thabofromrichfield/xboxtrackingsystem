@@ -190,3 +190,41 @@ test('a secret key typed into the browser panel is refused', () => {
   assert.equal(looksLikeSecretKey(anonJwt), false, 'anon JWT allowed');
   assert.equal(looksLikeSecretKey('sb_publishable_v8sZMpSpydpj'), false);
 });
+
+test('backend panel: two blank fields mean the built-in project, not a rejection', () => {
+  const { resolveBackendSettings, DEFAULTS } = cfg;
+  const r = resolveBackendSettings('', '');
+  assert.equal(r.url, DEFAULTS.url);
+  assert.equal(r.key, DEFAULTS.key);
+  assert.equal(r.usingDefaults, true, 'the panel can say "using defaults" honestly');
+  assert.equal(r.urlInvalid, false);
+  assert.equal(r.secret, false);
+  // whitespace-only pasting behaves exactly like leaving it empty
+  assert.deepEqual(resolveBackendSettings('   ', '\n  '), r);
+});
+
+test('backend panel: partial or messy input still resolves to a usable link', () => {
+  const { resolveBackendSettings, DEFAULTS } = cfg;
+  const byRef = resolveBackendSettings('gfshxhqzsexpsahnuwkw', '  sb_publishable_abc123  ');
+  assert.equal(byRef.url, DEFAULTS.url, 'bare ref normalises to the canonical origin');
+  assert.equal(byRef.key, 'sb_publishable_abc123');
+  assert.equal(byRef.usingDefaults, false);
+  assert.equal(byRef.urlInvalid, false);
+  // only the URL filled in keeps the default key: a half-finished edit is not a dead end
+  const restPath = resolveBackendSettings('https://gfshxhqzsexpsahnuwkw.supabase.co/rest/v1/xbox_cameras?select=id', '');
+  assert.equal(restPath.url, DEFAULTS.url);
+  assert.equal(restPath.key, DEFAULTS.key);
+  // another project is accepted, so the panel works for a second/staging backend
+  const staging = resolveBackendSettings('https://abcdefghijklmnopqrst.supabase.co', 'sb_publishable_x');
+  assert.equal(staging.url, 'https://abcdefghijklmnopqrst.supabase.co');
+  assert.equal(staging.urlInvalid, false);
+});
+
+test('backend panel: unusable URL and secret key are loud refusals, never silence', () => {
+  const { resolveBackendSettings, DEFAULTS } = cfg;
+  assert.equal(resolveBackendSettings('my wifi camera', '').urlInvalid, true);
+  assert.equal(resolveBackendSettings('not a url at all', 'k').urlInvalid, true, 'no guessing');
+  const secret = resolveBackendSettings(DEFAULTS.url, 'sb_secret_mv7uZabcdefghij');
+  assert.equal(secret.secret, true);
+  assert.equal(secret.urlInvalid, false, 'the secret-key complaint is the clearer one');
+});

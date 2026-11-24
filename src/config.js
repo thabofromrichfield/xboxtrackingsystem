@@ -119,6 +119,28 @@ export function saveConfig(patch) {
   return next;
 }
 
+/**
+ * Resolve the two Backend-link fields into a decision the UI can act on.
+ *
+ * Pure (no DOM) so the panel's rules are unit-testable and identical wherever
+ * they are used: an empty field means "keep the built-in default for it", a
+ * non-empty one must normalise or the panel refuses it, and a secret key is
+ * never accepted in a browser.
+ */
+export function resolveBackendSettings(rawUrl, rawKey, defaults = DEFAULTS) {
+  const u = String(rawUrl ?? '').trim();
+  const k = String(rawKey ?? '').trim();
+  const url = u ? normalizeUrl(u) : defaults.url;
+  const key = k ? normalizeKey(k) : defaults.key;
+  return {
+    url,
+    key,
+    urlInvalid: Boolean(u) && !url,
+    secret: looksLikeSecretKey(k) || looksLikeSecretKey(key),
+    usingDefaults: !u && !k,
+  };
+}
+
 export function clearConfig() {
   try {
     localStorage.removeItem(LS_KEY);

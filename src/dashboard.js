@@ -8,7 +8,7 @@
  * Feed = Supabase Realtime when the socket connects, polling otherwise.
  */
 
-import { loadConfig, saveConfig, clearConfig, normalizeUrl, normalizeKey, looksLikeSecretKey, DEFAULTS } from './config.js';
+import { loadConfig, saveConfig, clearConfig, resolveBackendSettings } from './config.js';
 import { XboxApi, timeAgo, isoLocal } from './supabase.js';
 import { drawEvidence } from './overlay.js';
 import { CUES, unlockAudio, notify } from './sound.js';
@@ -224,17 +224,7 @@ class ControlCenter {
    * a missing scheme or a full REST path all normalise to an origin.
    */
   resolveSettings() {
-    const rawUrl = $('#setUrl').value.trim();
-    const rawKey = $('#setKey').value.trim();
-    const url = rawUrl ? normalizeUrl(rawUrl) : DEFAULTS.url;
-    const key = rawKey ? normalizeKey(rawKey) : DEFAULTS.key;
-    return {
-      url,
-      key,
-      urlInvalid: Boolean(rawUrl) && !url,
-      secret: looksLikeSecretKey(rawKey) || looksLikeSecretKey(key),
-      usingDefaults: !rawUrl && !rawKey,
-    };
+    return resolveBackendSettings($('#setUrl').value, $('#setKey').value);
   }
 
   previewSettings() {
