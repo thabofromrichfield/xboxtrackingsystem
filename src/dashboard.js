@@ -38,6 +38,10 @@ class ControlCenter {
     this.bind();
     this.tickClock();
     setInterval(() => this.tickClock(), 1000);
+    if (this.cfg.urlFallback || this.cfg.keyFallback) {
+      this.toast('your saved backend URL/key was not usable, so the built-in xbox system project is in use — open ⚙ Backend link to correct it', 'warn', 'config recovered');
+      this.log('a stored, unusable backend override was ignored in favour of the built-in defaults');
+    }
     if (!this.api.configured) {
       this.diagnostics('Supabase is not configured — fill in the Backend link panel.', true);
       this.openSettings();
@@ -214,22 +218,40 @@ class ControlCenter {
     setTimeout(() => $('#setUrl').focus(), 40);
   }
 
+  /**
+   * What the two fields mean, resolved once:
+   * blank field = "use the built-in xbox system default for it"; a pasted ref,
+   * a missing scheme or a full REST path all normalise to an origin.
+   */
+  resolveSettings() {
+    const rawUrl = $('#setUrl').value.trim();
+    const rawKey = $('#setKey').value.trim();
+    const url = rawUrl ? normalizeUrl(rawUrl) : DEFAULTS.url;
+    const key = rawKey ? normalizeKey(rawKey) : DEFAULTS.key;
+    return {
+      url,
+      key,
+      urlInvalid: Boolean(rawUrl) && !url,
+      secret: looksLikeSecretKey(rawKey) || looksLikeSecretKey(key),
+      usingDefaults: !rawUrl && !rawKey,
+    };
+  }
+
   previewSettings() {
-    const url = normalizeUrl($('#setUrl').value);
-    const key = normalizeKey($('#setKey').value);
-    const raw = $('#setUrl').value.trim();
-    if (raw && !url) {
-      this.setMsg(`✗ “${raw.slice(0, 40)}” is not a usable project URL — paste e.g. https://abcdefghij.supabase.co`, 'bad');
-      return { url: '', key };
+    const r = this.resolveSettings();
+    if (r.urlInvalid) {
+      this.setMsg(`✗ “${$('#setUrl').value.trim().slice(0, 44)}” is not a usable project URL — paste e.g. https://abcdefghij.supabase.co, or just the 20-char ref`, 'bad');
+      return r;
     }
-    if (looksLikeSecretKey(key)) {
+    if (r.secret) {
       this.setMsg('✗ that is the service_role / sb_secret key. A browser may only use the publishable (anon) key — copy it from API Keys → Publishable key.', 'bad');
-      return { url, key };
+      return r;
     }
-    const target = url || '(not linked)';
-    const keyNote = key ? `${key.slice(0, 15)}…${key.slice(-4)}` : 'no key → will fall back to built-in defaults';
-    this.setMsg(`will link to: ${target} · key ${keyNote}`, url ? '' : 'bad');
-    return { url, key };
+    this.setMsg(
+      `will link to: ${r.url} · key ${r.key.slice(0, 15)}…${r.key.slice(-4)}${r.usingDefaults ? ' (built-in defaults)' : ''}`,
+      'ok'
+    );
+    return r;
   }
 
   /**
@@ -237,11 +259,12 @@ class ControlCenter {
    * user needs to know lands in the panel itself, not in the diagnostics strip.
    */
   async saveSettings(persist) {
-    const { url, key } = this.previewSettings();
-    if (!url || looksLikeSecretKey(key)) {
+    const r = this.previewSettings();
+    if (r.urlInvalid || r.secret) {
       this.toast('Fix the highlighted problem first — nothing was changed.', 'err', 'backend');
       return;
     }
+    const { url, key } = r;
     const btn = $('#btnSettingsSave');
     const testBtn = $('#btnSettingsTest');
     const prev = btn.textContent;
@@ -269,7 +292,11 @@ class ControlCenter {
         this.startFeed();
         this.renderAll();
         this.closeModal('#settingsPanel');
-        this.toast(`linked to ${this.api.url} — ${cams.length} node(s), feed is ${this.mode}`, 'ok', 'backend relinked');
+        this.toast(
+          `linked to ${this.api.url}${r.usingDefaults ? ' (built-in defaults, nothing stored)' : ''} — ${cams.length} node(s), feed is ${this.mode}`,
+          'ok',
+          'backend relinked'
+        );
       } else {
         this.toast('connection works (tested only, nothing changed)', 'ok', 'backend test');
       }

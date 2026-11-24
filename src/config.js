@@ -78,9 +78,17 @@ export function looksLikeSecretKey(key) {
 
 export function loadConfig() {
   const stored = readStored();
+  const rawUrl = qsp('sbUrl') || stored.url || DEFAULTS.url;
+  const rawKey = qsp('sbKey') || stored.key || DEFAULTS.key;
+  const url = normalizeUrl(rawUrl);
+  const key = normalizeKey(rawKey);
   const cfg = {
-    url: normalizeUrl(qsp('sbUrl') || stored.url || DEFAULTS.url),
-    key: normalizeKey(qsp('sbKey') || stored.key || DEFAULTS.key),
+    // An unusable saved value must never brick the app: fall back to the
+    // built-in project and say so (dashboard surfaces this as a toast).
+    url: url || normalizeUrl(DEFAULTS.url),
+    key: key || normalizeKey(DEFAULTS.key),
+    urlFallback: !url && rawUrl !== DEFAULTS.url,
+    keyFallback: !key && rawKey !== DEFAULTS.key,
     bucket: stored.bucket || DEFAULTS.bucket,
     // node identity
     cameraLabel: qsp('camera') || stored.cameraLabel || '',
