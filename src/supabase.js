@@ -70,13 +70,25 @@ export class XboxApi {
   /** Invoke a Postgres function. Unwrap single-value scalar results. */
   async rpc(fn, args = {}, { prefer = 'return=representation' } = {}) {
     const out = await this.req(`/rest/v1/rpc/${fn}`, { method: 'POST', body: args, prefer });
-    if (Array.isArray(out) && out.length === 1) {
-      const only = out[0];
-      if (only && typeof only === 'object') {
-        const keys = Object.keys(only);
-        if (keys.length === 1 && keys[0].startsWith('xbox')) return only[keys[0]];
+    return XboxApi.unwrap(out, fn);
+  }
+
+  /**
+   * PostgREST answers an RPC either as `[{"fn_name": value}]` (scalar return) or
+   * as the row/json document itself, so normalise both shapes here once.
+   */
+  static unwrap(out, fnName) {
+    if (Array.isArray(out)) {
+      if (!out.length) return null;
+      const first = out[0];
+      if (out.length === 1 && first && typeof first === 'object' && !Array.isArray(first)) {
+        const keys = Object.keys(first);
+        if (keys.length === 1 && (keys[0] === fnName || keys[0].startsWith('xbox'))) return first[keys[0]];
+        return first;
       }
+      return out;
     }
+    if (out && typeof out === 'object' && fnName && out[fnName] !== undefined) return out[fnName];
     return out;
   }
 
@@ -89,7 +101,15 @@ export class XboxApi {
       { p_label: label, p_kind: kind, p_location: location, p_notes: notes },
       { prefer: '' }
     );
-    return typeof out === 'string' ? JSON.parse(out) : out;
+    if (typeof out === 'string') {
+      try {
+        return JSON.parse(out);
+      } catch {
+        throw new Error(`unexpected registration response: ${out.slice(0, 160)}`);
+      }
+    }
+    if (!out || !out.id) throw new Error('registration returned no camera id');
+    return out;
   }
 
   async listCameras() {

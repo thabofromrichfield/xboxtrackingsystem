@@ -22,6 +22,7 @@ async function loadSrc(name) {
 }
 
 const { Watcher, EV } = await loadSrc('watcher.js');
+const { XboxApi } = await loadSrc('supabase.js');
 const { packLandmarks, packSkeleton, boxFromLandmarks, coreConfidence, POSE_CONNECTIONS } = await loadSrc('skeleton.js');
 
 const sig = (over = {}) => ({
@@ -138,4 +139,28 @@ test('skeleton topology indices stay inside the 33-landmark range', () => {
     assert.notEqual(a, b);
   }
   assert.ok(POSE_CONNECTIONS.length >= 30);
+});
+
+test('PostgREST RPC response shapes all normalise to the same object', () => {
+  const doc = { id: 'abc', label: 'Yard', access_token: 'tok', created: true };
+  assert.deepEqual(XboxApi.unwrap([{ xbox_register_camera: doc }], 'xbox_register_camera'), doc, 'scalar-wrapped');
+  assert.deepEqual(XboxApi.unwrap([doc], 'xbox_register_camera'), doc, 'row array');
+  assert.deepEqual(XboxApi.unwrap(doc, 'xbox_register_camera'), doc, 'bare jsonb');
+  assert.deepEqual(XboxApi.unwrap({ xbox_register_camera: doc }, 'xbox_register_camera'), doc, 'bare wrapper');
+  assert.equal(XboxApi.unwrap([], 'xbox_heartbeat'), null, 'void rpc');
+  assert.equal(XboxApi.unwrap(3, 'xbox_mark_ack'), 3, 'integer rpc passthrough');
+});
+
+test('api client builds correct rest/storage urls for this project', () => {
+  const api = new XboxApi({ url: 'https://ref.supabase.co/', key: 'sb_publishable_x'.padEnd(24, 'y') });
+  assert.equal(api.configured, true);
+  assert.equal(api.url, 'https://ref.supabase.co');
+  const path = api.snapshotObjectPath('cam-1', 'sess-9');
+  assert.match(path, /^xbox\/cam-1\/sess-9\/\d{8}-\d{6}-[0-9a-z]+\.jpg$/);
+  assert.equal(
+    api.publicUrl(path),
+    `https://ref.supabase.co/storage/v1/object/public/xbox-snapshots/${path}`
+  );
+  const unconfigured = new XboxApi({ url: '', key: '' });
+  assert.equal(unconfigured.configured, false);
 });
