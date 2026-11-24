@@ -28,6 +28,11 @@
 
 * { box-sizing: border-box; }
 
+/* An element that is `display:grid|flex` by its own class would otherwise beat
+   the UA `[hidden]{display:none}` rule, which silently keeps modals and banners
+   open forever. Any [hidden] element must be gone, whatever else applies. */
+[hidden] { display: none !important; }
+
 html, body {
   margin: 0;
   padding: 0;
@@ -399,6 +404,23 @@ input[readonly] { font-family: var(--mono); font-size: 11px; color: var(--cyan);
 .qrwrap img { width: 200px; height: 200px; border-radius: 10px; background: #fff; padding: 6px; }
 .fieldline.ok { animation: flashok 0.7s; }
 @keyframes flashok { from { box-shadow: 0 0 0 2px rgba(34, 255, 136, 0.5); } }
+.fieldnote { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); margin: 8px 0 0 !important; }
+.fieldnote.ok { color: #b7ffe0; }
+.fieldnote.bad { color: #ffc2cc; }
+.sheet .btnrow { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 14px !important; }
+.btn[data-busy="1"] { opacity: 0.65; cursor: progress; }
+
+.toasts { position: fixed; right: 14px; bottom: 14px; z-index: 95; display: flex; flex-direction: column; gap: 8px; max-width: min(400px, calc(100vw - 28px)); }
+.toast {
+  border: 1px solid var(--line); border-left: 3px solid var(--green);
+  background: rgba(11, 17, 26, 0.97); border-radius: 10px; padding: 9px 12px;
+  font-size: 12px; color: var(--ink); box-shadow: var(--shadow); backdrop-filter: blur(8px);
+  animation: toastin 0.18s ease; transition: opacity 0.4s;
+}
+.toast.err { border-left-color: var(--red); }
+.toast.warn { border-left-color: var(--amber); }
+.toast b { display: block; font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 2px; }
+@keyframes toastin { from { opacity: 0; transform: translateY(8px); } }
 
 /* --------------------------------------------------------------- insight */
 

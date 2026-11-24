@@ -8,7 +8,7 @@
  * Feed = Supabase Realtime when the socket connects, polling otherwise.
  */
 
-import { loadConfig, saveConfig } from './config.js';
+import { loadConfig, saveConfig, clearConfig, normalizeUrl, normalizeKey, looksLikeSecretKey, DEFAULTS } from './config.js';
 import { XboxApi, timeAgo, isoLocal } from './supabase.js';
 import { drawEvidence } from './overlay.js';
 import { CUES, unlockAudio, notify } from './sound.js';
@@ -39,8 +39,9 @@ class ControlCenter {
     this.tickClock();
     setInterval(() => this.tickClock(), 1000);
     if (!this.api.configured) {
-      this.diagnostics('Supabase is not configured — open Settings and paste the project URL + publishable key.', true);
-      $('#linkPanel').hidden = false;
+      this.diagnostics('Supabase is not configured — fill in the Backend link panel.', true);
+      this.openSettings();
+      this.toast('Paste your project URL + publishable key (or leave both empty to use the built-in xbox system project).', 'warn', 'not linked');
     }
     await this.refreshCameras(true);
     await this.refreshEvents(true);
@@ -94,10 +95,23 @@ class ControlCenter {
       });
     }
     $('#btnLink').addEventListener('click', () => {
-      $('#linkPanel').hidden = false;
+      this.openModal('#linkPanel');
       $('#linkLabel').focus();
+      if (!$('#linkOut').value) this.buildLink();
     });
-    $('#btnLinkClose').addEventListener('click', () => ($('#linkPanel').hidden = true));
+    $('#btnLinkClose').addEventListener('click', () => this.closeModal('#linkPanel'));
+    for (const sel of ['#linkPanel', '#settingsPanel']) {
+      const modal = $(sel);
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) this.closeModal(sel); // click the dim backdrop to dismiss
+      });
+    }
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        this.closeModal('#settingsPanel');
+        this.closeModal('#linkPanel');
+      }
+    });
     $('#btnLinkCreate').addEventListener('click', () => this.createNode());
     $('#btnCopyLink').addEventListener('click', async () => {
       try {
@@ -108,25 +122,35 @@ class ControlCenter {
         $('#linkOut').select();
       }
     });
-    $('#btnSettings').addEventListener('click', () => {
-      $('#setUrl').value = this.api.url;
-      $('#setKey').value = this.api.key;
-      $('#settingsPanel').hidden = false;
-    });
-    $('#btnSettingsClose').addEventListener('click', () => ($('#settingsPanel').hidden = true));
-    $('#btnSettingsSave').addEventListener('click', async () => {
-      const url = $('#setUrl').value.trim();
-      const key = $('#setKey').value.trim();
-      saveConfig({ url, key });
+    $('#btnSettings').addEventListener('click', () => this.openSettings());
+    $('#btnSettingsClose').addEventListener('click', () => this.closeModal('#settingsPanel'));
+    $('#btnSettingsSave').addEventListener('click', () => this.saveSettings(true));
+    $('#btnSettingsTest').addEventListener('click', () => this.saveSettings(false));
+    $('#btnSettingsReset').addEventListener('click', async () => {
+      clearConfig();
       this.cfg = loadConfig();
+      $('#setUrl').value = this.cfg.url;
+      $('#setKey').value = this.cfg.key;
       this.api = new XboxApi(this.cfg);
-      $('#settingsPanel').hidden = true;
-      this.log('relinking to Supabase…');
+      await this.api.disconnectRealtime().catch(() => {});
+      this.setMsg(`cleared local overrides — using the built-in xbox system project`, 'ok');
+      this.toast('local override cleared, using built-in defaults', 'ok', 'backend');
       await this.refreshCameras(true);
       await this.refreshEvents(true);
       this.startFeed();
       this.renderAll();
     });
+    for (const sel of ['#setUrl', '#setKey']) {
+      $(sel).addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          this.saveSettings(true);
+        }
+      });
+    }
+    for (const sel of ['#setUrl', '#setKey']) {
+      $(sel).addEventListener('input', () => this.previewSettings());
+    }
     $('#btnPurge').addEventListener('click', async () => {
       try {
         const n = await this.api.purge(0);
@@ -143,6 +167,138 @@ class ControlCenter {
       this.search = e.target.value.trim().toLowerCase();
       this.renderFeed();
     });
+  }
+
+  // ------------------------------------------------------------- modals / toasts
+
+  openModal(sel) {
+    const el = $(sel);
+    if (el) el.hidden = false;
+  }
+
+  closeModal(sel) {
+    const el = $(sel);
+    if (el) el.hidden = true;
+  }
+
+  setMsg(text, kind = '') {
+    const el = $('#setMsg');
+    if (!el) return;
+    el.textContent = text;
+    el.className = `fieldnote ${kind}`.trim();
+  }
+
+  toast(msg, kind = 'ok', title = '') {
+    let host = $('#toasts');
+    if (!host) {
+      host = document.createElement('div');
+      host.id = 'toasts';
+      host.className = 'toasts';
+      document.body.appendChild(host);
+    }
+    const t = document.createElement('div');
+    t.className = `toast ${kind}`;
+    t.innerHTML = `${title ? `<b>${esc(title)}</b>` : ''}${esc(msg)}`;
+    host.appendChild(t);
+    setTimeout(() => {
+      t.style.opacity = '0';
+      setTimeout(() => t.remove(), 420);
+    }, 5200);
+  }
+
+  openSettings() {
+    $('#setUrl').value = this.api.url || '';
+    $('#setKey').value = this.api.key || '';
+    this.previewSettings();
+    this.openModal('#settingsPanel');
+    setTimeout(() => $('#setUrl').focus(), 40);
+  }
+
+  previewSettings() {
+    const url = normalizeUrl($('#setUrl').value);
+    const key = normalizeKey($('#setKey').value);
+    const raw = $('#setUrl').value.trim();
+    if (raw && !url) {
+      this.setMsg(`✗ “${raw.slice(0, 40)}” is not a usable project URL — paste e.g. https://abcdefghij.supabase.co`, 'bad');
+      return { url: '', key };
+    }
+    if (looksLikeSecretKey(key)) {
+      this.setMsg('✗ that is the service_role / sb_secret key. A browser may only use the publishable (anon) key — copy it from API Keys → Publishable key.', 'bad');
+      return { url, key };
+    }
+    const target = url || '(not linked)';
+    const keyNote = key ? `${key.slice(0, 15)}…${key.slice(-4)}` : 'no key → will fall back to built-in defaults';
+    this.setMsg(`will link to: ${target} · key ${keyNote}`, url ? '' : 'bad');
+    return { url, key };
+  }
+
+  /**
+   * Validate → (optionally persist) → probe the project → relink. Everything the
+   * user needs to know lands in the panel itself, not in the diagnostics strip.
+   */
+  async saveSettings(persist) {
+    const { url, key } = this.previewSettings();
+    if (!url || looksLikeSecretKey(key)) {
+      this.toast('Fix the highlighted problem first — nothing was changed.', 'err', 'backend');
+      return;
+    }
+    const btn = $('#btnSettingsSave');
+    const testBtn = $('#btnSettingsTest');
+    const prev = btn.textContent;
+    btn.disabled = testBtn.disabled = true;
+    btn.dataset.busy = '1';
+    btn.textContent = 'probing project…';
+    this.setMsg(`probing ${url} …`);
+
+    const probe = new XboxApi({ url, key, bucket: this.cfg.bucket });
+    try {
+      const cams = await probe.listCameras();
+      const evs = await probe.listEvents({ limit: 5 });
+      const persons = cams.filter((c) => c.armed).length;
+      this.setMsg(
+        `✓ reachable · ${cams.length} node(s), ${persons} armed · ${evs.length} event(s) readable${evs.length ? '' : ' · no alerts stored yet'}`,
+        'ok'
+      );
+      if (persist) {
+        saveConfig({ url, key });
+        await this.api.disconnectRealtime().catch(() => {});
+        this.cfg = loadConfig();
+        this.api = new XboxApi(this.cfg);
+        await this.refreshCameras(true);
+        await this.refreshEvents(true);
+        this.startFeed();
+        this.renderAll();
+        this.closeModal('#settingsPanel');
+        this.toast(`linked to ${this.api.url} — ${cams.length} node(s), feed is ${this.mode}`, 'ok', 'backend relinked');
+      } else {
+        this.toast('connection works (tested only, nothing changed)', 'ok', 'backend test');
+      }
+    } catch (err) {
+      const hint = /Failed to fetch|NetworkError|ERR_/.test(String(err.message))
+        ? ' — the project is unreachable from this browser (offline, wrong URL, or blocked). URL tried: ' + url
+        : ` — ${err.message}`;
+      this.setMsg(`✗ could not use that project${hint}`, 'bad');
+      this.toast('that URL/key could not load the project — see the panel for the exact error', 'err', 'relink failed');
+    } finally {
+      btn.disabled = testBtn.disabled = false;
+      delete btn.dataset.busy;
+      btn.textContent = prev;
+    }
+  }
+
+  noteUlink(ok, err) {
+    if (this.uplinkOk === ok) return;
+    this.uplinkOk = ok;
+    if (!ok) {
+      this.toast(
+        `uplink to ${this.api.url} failed: ${(err && err.message) || 'unreachable'} — open ⚙ Backend link to fix it`,
+        'err',
+        'uplink down'
+      );
+    } else if (this.uplinkWasDown) {
+      this.toast('uplink restored', 'ok', 'uplink');
+    }
+    this.uplinkWasDown = !ok;
   }
 
   log(msg) {
@@ -171,9 +327,11 @@ class ControlCenter {
       this.renderWall();
       this.renderKpis();
       this.diagnostics(`${rows.length} node(s) · ${this.mode}`);
+      this.noteUlink(true);
       if (first) this.log(`loaded ${rows.length} camera node(s)`);
     } catch (err) {
       this.diagnostics(`camera fetch failed: ${err.message}`, true);
+      this.noteUlink(false, err);
     }
   }
 

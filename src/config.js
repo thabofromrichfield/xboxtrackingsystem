@@ -34,11 +34,53 @@ export function readStored() {
   }
 }
 
+/**
+ * Accept whatever a human pastes from the Supabase dashboard and turn it into a
+ * bare origin: "REF.supabase.co", "https://ref.supabase.co/rest/v1/", a quoted
+ * string, or the 20-char project ref on its own. Returns '' when unusable so
+ * callers can show a real error instead of silently failing.
+ */
+export function normalizeUrl(raw) {
+  let s = String(raw ?? '').trim().replace(/^["'<]+|["'>]+$/g, '').replace(/\/+$/, '');
+  if (!s) return '';
+  if (/^[a-z0-9]{18,24}$/i.test(s)) s = `${s}.supabase.co`;
+  if (!/^https?:\/\//i.test(s)) s = `https://${s.replace(/^\/+/, '')}`;
+  try {
+    const u = new URL(s);
+    const localHost = /^(localhost|127\.)/.test(u.hostname);
+    if (!u.hostname.includes('.') && !localHost) return '';
+    if (u.protocol === 'https:') return u.origin;
+    return localHost ? u.origin : ''; // plain http is only sane for localhost
+  } catch {
+    return '';
+  }
+}
+
+/** Keys get whitespace/quote stripped — pasting a JWT often adds both. */
+export function normalizeKey(raw) {
+  return String(raw ?? '').replace(/^["']+|["']+$/g, '').replace(/\s+/g, '').trim();
+}
+
+/** Never let a service_role / sb_secret key end up in a browser bundle. */
+export function looksLikeSecretKey(key) {
+  const s = normalizeKey(key);
+  if (!s) return false;
+  if (/^sb_secret_/i.test(s)) return true;
+  if (!/^eyJ/i.test(s)) return false;
+  try {
+    const payload = s.split('.')[1] || '';
+    const json = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')));
+    return json && json.role === 'service_role';
+  } catch {
+    return false;
+  }
+}
+
 export function loadConfig() {
   const stored = readStored();
   const cfg = {
-    url: qsp('sbUrl') || stored.url || DEFAULTS.url,
-    key: qsp('sbKey') || stored.key || DEFAULTS.key,
+    url: normalizeUrl(qsp('sbUrl') || stored.url || DEFAULTS.url),
+    key: normalizeKey(qsp('sbKey') || stored.key || DEFAULTS.key),
     bucket: stored.bucket || DEFAULTS.bucket,
     // node identity
     cameraLabel: qsp('camera') || stored.cameraLabel || '',
@@ -56,7 +98,6 @@ export function loadConfig() {
     showOverlay: stored.showOverlay !== false,
     frontCamera: stored.frontCamera === true,
   };
-  cfg.url = String(cfg.url || '').replace(/\/+$/, '');
   return cfg;
 }
 

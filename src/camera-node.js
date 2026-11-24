@@ -10,7 +10,7 @@
  * this node remotely, because the camera row is polled for config.
  */
 
-import { loadConfig, saveConfig, deviceLabel, isSecureContextOk } from './config.js';
+import { loadConfig, saveConfig, clearConfig, deviceLabel, isSecureContextOk } from './config.js';
 import { XboxApi, sleep, timeAgo } from './supabase.js';
 import { PoseEngine } from './pose.js';
 import { MotionDetector } from './motion.js';
@@ -59,6 +59,7 @@ class CameraNode {
     this.renderConfig();
     this.setStatus('uplink', this.api.configured ? 'ok' : 'off', 'not linked');
     this.log(`node ready — ${deviceLabel()}`);
+    this.log(`backend: ${this.api.url || 'NOT CONFIGURED'} · ${this.api.configured ? 'key ' + this.api.key.slice(0, 15) + '…' : 'open the control center ⚙ to set it'}`);
     if (!isSecureContextOk()) {
       this.log('⚠ insecure origin: the camera API only works over HTTPS (or localhost). Deploy to Vercel or use the LAN https tunnel.', 'err');
       $('#banner').hidden = false;
@@ -150,6 +151,15 @@ class CameraNode {
     };
     ['#inpLabel', '#inpLocation', '#selKind'].forEach((sel) => $(sel).addEventListener('change', save));
     $('#btnLink').addEventListener('click', () => this.register(true));
+    $('#btnResetLink').addEventListener('click', async () => {
+      const before = this.api.url;
+      clearConfig();
+      this.cfg = loadConfig();
+      this.api = new XboxApi(this.cfg);
+      this.log(`cleared the locally saved backend (was ${before}) → now using ${this.api.url}`);
+      this.setStatus('uplink', this.api.configured ? 'ok' : 'err', this.api.configured ? 'defaults restored' : 'not linked');
+      if (this.running) await this.register(true);
+    });
 
     window.addEventListener('pagehide', () => this.stop('page hidden'));
     document.addEventListener('visibilitychange', () => {

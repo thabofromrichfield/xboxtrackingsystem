@@ -164,3 +164,29 @@ test('api client builds correct rest/storage urls for this project', () => {
   const unconfigured = new XboxApi({ url: '', key: '' });
   assert.equal(unconfigured.configured, false);
 });
+
+const cfg = await loadSrc('config.js');
+
+test('project URL field accepts everything a human pastes into it', () => {
+  const { normalizeUrl, normalizeKey, looksLikeSecretKey } = cfg;
+  const want = 'https://gfshxhqzsexpsahnuwkw.supabase.co';
+  assert.equal(normalizeUrl(want), want);
+  assert.equal(normalizeUrl(want + '/'), want);
+  assert.equal(normalizeUrl(want + '/rest/v1/xbox_cameras?select=id'), want);
+  assert.equal(normalizeUrl('gfshxhqzsexpsahnuwkw.supabase.co'), want, 'missing scheme');
+  assert.equal(normalizeUrl('gfshxhqzsexpsahnuwkw'), want, 'bare project ref');
+  assert.equal(normalizeUrl(` "${want}" `), want, 'quotes and padding');
+  assert.equal(normalizeUrl('not a url at all'), '', 'junk is rejected, not guessed');
+  assert.equal(normalizeUrl(''), '');
+  assert.equal(normalizeKey('  eyJabc. def \n'), 'eyJabc.def', 'keys lose padding/whitespace but keep dots');
+});
+
+test('a secret key typed into the browser panel is refused', () => {
+  const { looksLikeSecretKey } = cfg;
+  assert.equal(looksLikeSecretKey('sb_secret_mv7uZabcdefghij'), true);
+  const svcJwt = 'eyJhbGciOiJIUzI1NiJ9.' + btoa(JSON.stringify({ role: 'service_role' })).replace(/=+$/, '') + '.sig';
+  const anonJwt = 'eyJhbGciOiJIUzI1NiJ9.' + btoa(JSON.stringify({ role: 'anon' })).replace(/=+$/, '') + '.sig';
+  assert.equal(looksLikeSecretKey(svcJwt), true, 'service_role JWT detected');
+  assert.equal(looksLikeSecretKey(anonJwt), false, 'anon JWT allowed');
+  assert.equal(looksLikeSecretKey('sb_publishable_v8sZMpSpydpj'), false);
+});

@@ -149,12 +149,18 @@
 </div>
 
 <div class="modal" id="settingsPanel" hidden>
-  <div class="sheet">
-    <header class="ph"><h2>Backend</h2><button class="mini" id="btnSettingsClose">close</button></header>
-    <label class="fieldline">Supabase project URL<input id="setUrl" placeholder="https://REF.supabase.co"></label>
-    <label class="fieldline">Publishable / anon key<input id="setKey" placeholder="sb_publishable_…"></label>
-    <p class="hint small">Saved in this browser only. Defaults point at the <b>xbox system</b> project (<code>gfshxhqzsexpsahnuwkw</code>).</p>
-    <button class="btn primary wide" id="btnSettingsSave">relink &amp; reload</button>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+    <header class="ph"><h2 id="settingsTitle">Backend link</h2><button class="mini" id="btnSettingsClose">close ✕</button></header>
+    <p class="hint">Point this control center at your Supabase project. <b>Leave both fields empty</b> to use the built-in <b>xbox system</b> project (<code>gfshxhqzsexpsahnuwkw</code>) — it is already wired up, so you normally do not need to change anything here.</p>
+    <label class="fieldline">project URL (or just the 20-char ref)<input id="setUrl" placeholder="https://REF.supabase.co   ·   gfshxhqzsexpsahnuwkw" autocomplete="off" spellcheck="false" autocapitalize="off"></label>
+    <label class="fieldline">publishable / anon key<input id="setKey" placeholder="sb_publishable_…   ·   eyJhbGciOi…" autocomplete="off" spellcheck="false" autocapitalize="off"></label>
+    <p class="fieldnote" id="setMsg">current: —</p>
+    <div class="btnrow">
+      <button class="btn primary" id="btnSettingsSave">test &amp; relink</button>
+      <button class="btn ghost" id="btnSettingsTest">test only</button>
+      <button class="btn ghost" id="btnSettingsReset">use defaults</button>
+    </div>
+    <p class="hint small">The <b>service_role / sb_secret</b> key is refused here on purpose — a browser key can only ever be the publishable one. The secret key lives in Vercel env vars for <code>/api/event</code>.</p>
   </div>
 </div>
 
