@@ -120,6 +120,23 @@ back to the defaults and says so instead of loading blank.
 Each node page shows which backend it is posting to in its log, and **reset backend link** returns a node to the
 defaults after you change project.
 
+### Reading the dashboard's own status
+
+Two places answer "is this connected?" without opening devtools:
+
+* the **topbar chip** — `gfshxhqzsexpsahnuwkw · realtime · 2 nodes` when healthy, or
+  `… · unreachable`, `… · denied`, `… · no-tables`, `… · no nodes yet` when not. Click it to open ⚙ Backend link.
+* the **status strip above the camera wall** — appears only when something is wrong, names the cause and
+  offers the repair in one tap: **retry now**, **use the xbox system project**, **open backend link**.
+
+If you ever end up pointed at the wrong project with no way to fix it from the page (a phone, say), open
+`/?reset=1` — it drops the stored override and falls back to the built-in project. Same trick works on a node
+page: `/camera?camera=Yard&reset=1`.
+
+Nothing on either page is allowed to fail quietly: a failed read is classified (unreachable / key rejected /
+wrong project / table missing) and reported in the panel, the chip and a toast; a render or startup exception
+shows up on the strip instead of leaving a frozen page.
+
 ## 4. Any other camera (IP cam, RTSP, Raspberry Pi, ESP32, NVR)
 
 `api/event.js` is a Vercel function that ingests for non-browser devices. It authenticates with

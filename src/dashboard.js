@@ -386,8 +386,9 @@ class ControlCenter {
     const bad = ['unreachable', 'denied', 'no-tables', 'not-found', 'server', 'unconfigured', 'render', 'fatal'];
     const warn = ['init', 'empty'].includes(this.link.kind) || this.link.kind.startsWith('http-');
     chip.className = `chip link ${bad.includes(this.link.kind) ? 'err' : warn ? 'warn' : 'ok'}`;
+    const feed = this.mode.startsWith('realtime') ? 'realtime' : 'polling';
     const label =
-      this.link.kind === 'live' ? `${this.linkLabel()} · ${this.mode === 'polling' ? 'polling' : 'realtime'}` :
+      this.link.kind === 'live' ? `${this.linkLabel()} · ${feed} · ${this.cameras.size} node${this.cameras.size === 1 ? '' : 's'}` :
       this.link.kind === 'init' ? `${this.linkLabel()} · checking…` :
       this.link.kind === 'empty' ? `${this.linkLabel()} · no nodes yet` :
       `${this.linkLabel()} · ${this.link.kind}`;
@@ -760,11 +761,12 @@ class ControlCenter {
     $('#kpiEvents').textContent = String(day.length);
     const conf = day.filter((e) => e.confidence).map((e) => Number(e.confidence));
     $('#kpiConf').textContent = conf.length ? `${Math.round((conf.reduce((a, b) => a + b, 0) / conf.length) * 100)}%` : '—';
-    $('#stFeed').className = `chip ${this.api.online === false ? 'err' : 'ok'}`;
-    $('#stFeed').querySelector('.dot').nextElementSibling.textContent =
-      this.api.online === false ? 'uplink down' : this.mode.startsWith('realtime') ? 'realtime live' : 'polling live';
-    $('#stArm').className = 'chip ok';
-    $('#stArm').querySelector('.dot').nextElementSibling.textContent = `${cams.filter((c) => c.armed).length} armed / ${cams.length} nodes`;
+    // #stFeed belongs to renderLinkChip (it carries the linked project + failure
+    // kind) and #stArm to the armed count below — never both from here, or the
+    // 5s repaint would stamp over the link status.
+    $('#stArm').className = `chip link ${cams.length ? 'ok' : 'warn'}`;
+    const armSpan = $('#stArm').querySelector('.dot')?.nextElementSibling;
+    if (armSpan) armSpan.textContent = `${cams.filter((c) => c.armed).length} armed / ${cams.length} nodes`;
   }
 
   renderWall() {
