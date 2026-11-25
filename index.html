@@ -28,8 +28,8 @@
     </div>
   </div>
   <div class="chips">
-    <span class="chip ok" id="stFeed"><i class="dot"></i><span>connecting…</span></span>
-    <span class="chip" id="stArm"><i class="dot"></i><span>— nodes</span></span>
+    <span class="chip link ok" id="stFeed" role="button" tabindex="0" aria-label="Backend link status — click to open the backend link panel"><i class="dot"></i><span>connecting…</span></span>
+    <span class="chip link" id="stArm" role="button" tabindex="0" aria-label="Node count — click to open the backend link panel"><i class="dot"></i><span>— nodes</span></span>
     <span class="chip clock" id="clock">—</span>
   </div>
   <div class="actions">
@@ -53,6 +53,19 @@
     <input type="hidden" id="bannerIds">
     <button class="btn danger" id="btnSnooze">Snooze audio 10m</button>
     <button class="btn primary" id="btnAckAll">Acknowledge all</button>
+  </div>
+</section>
+
+<section class="sysnote" id="sysNote" hidden role="status" aria-live="polite">
+  <div class="sysnote-copy">
+    <b id="sysNoteTitle">backend</b>
+    <p id="sysNoteText">—</p>
+  </div>
+  <div class="bannerbtns">
+    <button class="mini" id="btnSysClose">dismiss</button>
+    <button class="btn ghost" id="btnSysRetry">retry now</button>
+    <button class="btn ghost" id="btnSysDefaults">use the xbox system project</button>
+    <button class="btn primary" id="btnSysLink">open backend link</button>
   </div>
 </section>
 

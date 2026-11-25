@@ -10,7 +10,7 @@
  * this node remotely, because the camera row is polled for config.
  */
 
-import { loadConfig, saveConfig, clearConfig, deviceLabel, isSecureContextOk } from './config.js';
+import { clearConfig, deviceLabel, isSecureContextOk, loadConfig, projectRef, saveConfig } from './config.js';
 import { XboxApi, sleep, timeAgo } from './supabase.js';
 import { PoseEngine } from './pose.js';
 import { MotionDetector } from './motion.js';
@@ -57,9 +57,14 @@ class CameraNode {
   init() {
     this.bindControls();
     this.renderConfig();
-    this.setStatus('uplink', this.api.configured ? 'ok' : 'off', 'not linked');
+    this.setStatus(
+      'uplink',
+      this.api.configured ? 'ok' : 'off',
+      this.api.configured ? `→ ${projectRef(this.api.url)}` : 'not linked'
+    );
     this.log(`node ready — ${deviceLabel()}`);
-    this.log(`backend: ${this.api.url || 'NOT CONFIGURED'} · ${this.api.configured ? 'key ' + this.api.key.slice(0, 15) + '…' : 'open the control center ⚙ to set it'}`);
+    this.log(`backend: ${this.api.url || 'NOT CONFIGURED'} · ${this.api.configured ? 'key ' + this.api.key.slice(0, 15) + '…' : 'open the control center ⚙ to set it'}${this.cfg.hasOverride ? ' · override saved in this browser (add ?reset=1 to drop it)' : ''}`);
+    if (this.cfg.resetApplied) this.log('cleared stored backend settings because ?reset=1 was in the URL');
     if (!isSecureContextOk()) {
       this.log('⚠ insecure origin: the camera API only works over HTTPS (or localhost). Deploy to Vercel or use the LAN https tunnel.', 'err');
       $('#banner').hidden = false;
@@ -157,7 +162,7 @@ class CameraNode {
       this.cfg = loadConfig();
       this.api = new XboxApi(this.cfg);
       this.log(`cleared the locally saved backend (was ${before}) → now using ${this.api.url}`);
-      this.setStatus('uplink', this.api.configured ? 'ok' : 'err', this.api.configured ? 'defaults restored' : 'not linked');
+      this.setStatus('uplink', this.api.configured ? 'ok' : 'err', this.api.configured ? `→ ${projectRef(this.api.url)} (defaults)` : 'not linked');
       if (this.running) await this.register(true);
     });
 

@@ -8,13 +8,14 @@
  * Feed = Supabase Realtime when the socket connects, polling otherwise.
  */
 
-import { loadConfig, saveConfig, clearConfig, resolveBackendSettings } from './config.js';
+import { loadConfig, saveConfig, clearConfig, resolveBackendSettings, projectRef, DEFAULTS } from './config.js';
 import { XboxApi, timeAgo, isoLocal } from './supabase.js';
 import { drawEvidence } from './overlay.js';
 import { CUES, unlockAudio, notify } from './sound.js';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
+const DEFAULTS_URL = DEFAULTS.url; // the built-in "xbox system" project
 const ONLINE_WINDOW_MS = 45_000;
 const POLL_EVENTS_MS = 2500;
 const POLL_CAMERAS_MS = 8000;
@@ -32,12 +33,22 @@ class ControlCenter {
     this.mode = 'polling';
     this.lastSync = 0;
     this.openPanel = null;
+    // link is the single source of truth for "is this dashboard talking to
+    // Supabase, and to which project" — always visible in the topbar chip.
+    this.link = { kind: 'init', msg: 'checking the backend…', at: Date.now() };
+    this.errorsSeen = 0;
   }
 
   async init() {
     this.bind();
+    this.watchErrors();
     this.tickClock();
+    this.renderLinkChip();
     setInterval(() => this.tickClock(), 1000);
+    if (this.cfg.resetApplied) {
+      this.log('local overrides cleared by ?reset=1 — using the built-in xbox system project');
+      this.toast('stored backend settings cleared, using the built-in xbox system project', 'ok', 'reset');
+    }
     if (this.cfg.urlFallback || this.cfg.keyFallback) {
       this.toast('your saved backend URL/key was not usable, so the built-in xbox system project is in use — open ⚙ Backend link to correct it', 'warn', 'config recovered');
       this.log('a stored, unusable backend override was ignored in favour of the built-in defaults');
@@ -130,20 +141,33 @@ class ControlCenter {
     $('#btnSettingsClose').addEventListener('click', () => this.closeModal('#settingsPanel'));
     $('#btnSettingsSave').addEventListener('click', () => this.saveSettings(true));
     $('#btnSettingsTest').addEventListener('click', () => this.saveSettings(false));
-    $('#btnSettingsReset').addEventListener('click', async () => {
-      clearConfig();
-      this.cfg = loadConfig();
-      $('#setUrl').value = this.cfg.url;
-      $('#setKey').value = this.cfg.key;
-      this.api = new XboxApi(this.cfg);
-      await this.api.disconnectRealtime().catch(() => {});
-      this.setMsg(`cleared local overrides — using the built-in xbox system project`, 'ok');
-      this.toast('local override cleared, using built-in defaults', 'ok', 'backend');
+    $('#btnSettingsReset').addEventListener('click', () => this.applyDefaultsAndRelink());
+    $('#btnSysDefaults').addEventListener('click', () => this.applyDefaultsAndRelink());
+    $('#btnSysLink').addEventListener('click', () => this.openSettings());
+    $('#btnSysRetry').addEventListener('click', async () => {
+      this.setLink('init', 're-reading the backend…');
       await this.refreshCameras(true);
       await this.refreshEvents(true);
-      this.startFeed();
-      this.renderAll();
+      this.toast(`backend answered: ${this.cameras.size} node(s), ${this.events.size} event(s)`, this.link.kind === 'live' ? 'ok' : 'err', 'retry');
     });
+    $('#btnSysClose').addEventListener('click', () => {
+      const el = $('#sysNote');
+      el.hidden = true;
+      el.dataset.pinned = 'off'; // stay dismissed until the next real state change
+      this.log('system notice dismissed — the topbar chip still shows the backend state');
+    });
+    for (const sel of ['#stFeed', '#stArm']) {
+      const chip = $(sel);
+      if (!chip) continue;
+      chip.addEventListener('click', () => this.openSettings());
+      chip.tabIndex = 0;
+      chip.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          this.openSettings();
+        }
+      });
+    }
     for (const sel of ['#setUrl', '#setKey']) {
       $(sel).addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
@@ -303,6 +327,139 @@ class ControlCenter {
     }
   }
 
+  /** One-tap repair: drop stored overrides, rewire, and read the working project. */
+  async applyDefaultsAndRelink() {
+    clearConfig();
+    this.cfg = loadConfig();
+    this.api = new XboxApi(this.cfg);
+    await this.api.disconnectRealtime().catch(() => {});
+    $('#setUrl').value = this.cfg.url;
+    $('#setKey').value = this.cfg.key;
+    delete $('#sysNote').dataset.pinned;
+    this.setMsg('cleared local overrides — using the built-in xbox system project', 'ok');
+    this.setLink('init', 'relinking to the built-in project');
+    this.toast('local override cleared, using the built-in xbox system project', 'ok', 'backend');
+    await this.refreshCameras(true);
+    await this.refreshEvents(true);
+    this.startFeed();
+    this.renderQuietly('all', () => this.renderAll());
+  }
+
+  // ------------------------------------------------------- link status / safety
+
+  /** The project this dashboard is actually talking to, as a glanceable label. */
+  linkLabel() {
+    const ref = projectRef(this.api.url);
+    const who = ref ? ref : 'not linked';
+    return this.cfg.hasOverride ? `${who} (saved)` : who;
+  }
+
+  setLink(kind, msg = '') {
+    this.link = { kind, msg, at: Date.now() };
+    this.renderLinkChip();
+    this.renderSysNote();
+  }
+
+  /** Any render error is reported as itself — never mislabelled as a fetch failure. */
+  renderQuietly(what, fn) {
+    try {
+      fn();
+    } catch (err) {
+      this.setLink('render', `${what} render threw: ${(err && err.message) || err}`);
+      this.log(`render error while painting ${what}: ${(err && err.stack) || err}`);
+    }
+  }
+
+  reportReadFailure(what, err) {
+    const kind = XboxApi.classifyError(err);
+    const detail = String((err && err.message) || err).slice(0, 220);
+    this.diagnostics(`${what} fetch failed (${kind}): ${detail}`, true);
+    this.log(`${what} read failed [${kind}]: ${detail}`);
+    this.noteUlink(false, err);
+    this.setLink(kind, detail);
+    this.renderLinkChip();
+  }
+
+  renderLinkChip() {
+    const chip = $('#stFeed');
+    if (!chip) return;
+    const bad = ['unreachable', 'denied', 'no-tables', 'not-found', 'server', 'unconfigured', 'render', 'fatal'];
+    const warn = ['init', 'empty'].includes(this.link.kind) || this.link.kind.startsWith('http-');
+    chip.className = `chip link ${bad.includes(this.link.kind) ? 'err' : warn ? 'warn' : 'ok'}`;
+    const label =
+      this.link.kind === 'live' ? `${this.linkLabel()} · ${this.mode === 'polling' ? 'polling' : 'realtime'}` :
+      this.link.kind === 'init' ? `${this.linkLabel()} · checking…` :
+      this.link.kind === 'empty' ? `${this.linkLabel()} · no nodes yet` :
+      `${this.linkLabel()} · ${this.link.kind}`;
+    const span = chip.querySelector('.dot')?.nextElementSibling;
+    if (span) span.textContent = label;
+    chip.title = `${this.api.url}\n${this.link.msg || 'reading ok'}`;
+  }
+
+  /**
+   * The strip above the wall: the one place that says out loud whether the
+   * dashboard is connected, what to do when it is not, and does it with a button
+   * instead of instructions.
+   */
+  renderSysNote() {
+    const el = $('#sysNote');
+    if (!el) return;
+    if (el.dataset.pinned === 'off' && ['live', 'empty'].includes(this.link.kind)) return;
+    if (['unreachable', 'denied', 'no-tables', 'not-found', 'fatal', 'server', 'unconfigured'].includes(this.link.kind)) delete el.dataset.pinned;
+    const healthy = this.link.kind === 'live';
+    const copy = {
+      unconfigured: ['not linked to Supabase', 'this dashboard has no usable project URL/key, so the wall and feed cannot fill in. One tap uses the built-in xbox system project — which your camera nodes are already writing to.'],
+      unreachable: ['cannot reach the backend', 'the browser could not load the project at all — offline, wrong URL, or blocked by the network. Check the address below; if it came from the browser cache of an old paste, one tap restores the working project.'],
+      'no-tables': ['wrong Supabase project', 'the project this page is linked to exists, but it has no xbox_cameras / xbox_detection_events — your nodes are writing to a different project. Point this page back at the xbox system project.'],
+      denied: ['key rejected', 'the project answered but refused the publishable key (401/403). Copy API Keys → Publishable key again; a secret key is refused in a browser on purpose.'],
+      'not-found': ['backend path missing', 'the project answered but not on /rest/v1 — that URL is not a Supabase API endpoint. Paste the project URL (or just its ref) instead of a dashboard page.'],
+      empty: ['linked, but no nodes registered', 'the project is reachable and readable, yet no camera node has registered in it. Open a camera node page (or the link below) and start it once; it registers itself and events start landing here.'],
+      render: ['the dashboard failed to paint', 'data arrived but rendering threw — the message below is the exact JS error, and the page keeps polling so it will recover on the next update.'],
+      fatal: ['the control centre crashed', 'startup threw before the dashboard could attach. The message below is the exact error; reloading is safe and nothing was lost.'],
+      init: ['checking the backend…', 'reading the linked project now — if this line stays, the network request is still pending or blocked.'],
+    };
+    const known = copy[this.link.kind];
+    const isHttp = this.link.kind.startsWith('http-');
+    const title = known ? known[0] : isHttp ? `backend answered ${this.link.kind.slice(5)}` : `backend problem (${this.link.kind})`;
+    const body = known ? known[1] : this.link.msg || 'the backend returned an unexpected error.';
+    if (healthy && !el.dataset.pinned) {
+      el.hidden = true;
+      return;
+    }
+    el.hidden = false;
+    el.dataset.kind = this.link.kind;
+    $('#sysNoteTitle').textContent = title;
+    $('#sysNoteText').textContent = `${body}${this.link.msg && known ? ` — ${this.link.msg}` : ''}${this.cfg.hasOverride ? ' · using a value saved in this browser' : ''}`;
+    const defBtn = $('#btnSysDefaults');
+    if (defBtn) defBtn.hidden = this.api.url === DEFAULTS_URL || this.link.kind === 'render';
+  }
+
+  /** Startup/render/window failures must be visible, never a quietly dead page. */
+  fatal(err) {
+    const msg = String((err && err.message) || err || 'unknown error');
+    console.error('[xbox-control] fatal', err);
+    this.link = { kind: 'fatal', msg, at: Date.now() };
+    this.diagnostics(`fatal: ${msg}`, true);
+    this.renderLinkChip();
+    this.renderSysNote();
+    this.toast(msg, 'err', 'dashboard error');
+  }
+
+  watchErrors() {
+    window.addEventListener('error', (e) => {
+      if (this.errorsSeen++ > 2) return;
+      const msg = e.message || 'script failed to load';
+      this.diagnostics(`page error: ${msg}`, true);
+      this.setLink('render', msg);
+    });
+    window.addEventListener('unhandledrejection', (e) => {
+      if (this.errorsSeen++ > 2) return;
+      const msg = String((e.reason && e.reason.message) || e.reason || 'promise rejected');
+      this.diagnostics(`unhandled: ${msg}`, true);
+      this.setLink('render', msg);
+    });
+  }
+
   noteUlink(ok, err) {
     if (this.uplinkOk === ok) return;
     this.uplinkOk = ok;
@@ -314,6 +471,7 @@ class ControlCenter {
       );
     } else if (this.uplinkWasDown) {
       this.toast('uplink restored', 'ok', 'uplink');
+      this.log('uplink to supabase recovered');
     }
     this.uplinkWasDown = !ok;
   }
@@ -338,48 +496,63 @@ class ControlCenter {
   // ------------------------------------------------------------------ data
 
   async refreshCameras(first = false) {
+    let rows;
     try {
-      const rows = await this.api.listCameras();
-      this.cameras = new Map(rows.map((r) => [r.id, r]));
+      rows = await this.api.listCameras();
+    } catch (err) {
+      this.reportReadFailure('nodes', err);
+      return;
+    }
+    this.cameras = new Map(rows.map((r) => [r.id, r]));
+    this.noteUlink(true);
+    // A linked-but-empty project and a linked project with nodes must not look
+    // the same: the first is the "is anything connected?" question itself.
+    if (!rows.length && this.api.configured) {
+      this.setLink('empty', this.api.url === DEFAULTS_URL ? 'no camera nodes have registered here yet' : 'this project has no camera nodes registered — the nodes are writing somewhere else');
+    } else {
+      this.setLink('live', `${rows.length} node(s) · ${this.mode}`);
+    }
+    this.diagnostics(`${rows.length} node(s) · ${this.mode}`);
+    if (first) this.log(`loaded ${rows.length} camera node(s)`);
+    this.renderQuietly('wall', () => {
       this.renderWall();
       this.renderKpis();
-      this.diagnostics(`${rows.length} node(s) · ${this.mode}`);
-      this.noteUlink(true);
-      if (first) this.log(`loaded ${rows.length} camera node(s)`);
-    } catch (err) {
-      this.diagnostics(`camera fetch failed: ${err.message}`, true);
-      this.noteUlink(false, err);
-    }
+    });
   }
 
   async refreshEvents(first = false) {
+    let rows;
     try {
-      const rows = await this.api.listEvents({ limit: 80 });
-      let fresh = 0;
-      for (const e of rows) {
-        if (!this.events.has(e.id)) {
-          this.events.set(e.id, e);
-          this.order.unshift(e.id);
-          fresh += 1;
-          if (!first && isHotAlert(e) && Date.now() - Date.parse(e.created_at) < 20_000) this.raise(e);
-        } else this.events.set(e.id, { ...this.events.get(e.id), ...e });
-      }
-      while (this.order.length > 500) {
-        const dead = this.order.pop();
-        this.events.delete(dead);
-      }
-      this.lastSync = Date.now();
-      $('#lastSync').textContent = isoLocal();
-      if (fresh) {
+      rows = await this.api.listEvents({ limit: 80 });
+    } catch (err) {
+      this.reportReadFailure('events', err);
+      return;
+    }
+    let fresh = 0;
+    for (const e of rows) {
+      if (!this.events.has(e.id)) {
+        this.events.set(e.id, e);
+        this.order.unshift(e.id);
+        fresh += 1;
+        if (!first && isHotAlert(e) && Date.now() - Date.parse(e.created_at) < 20_000) this.raise(e);
+      } else this.events.set(e.id, { ...this.events.get(e.id), ...e });
+    }
+    while (this.order.length > 500) {
+      const dead = this.order.pop();
+      this.events.delete(dead);
+    }
+    this.lastSync = Date.now();
+    $('#lastSync').textContent = isoLocal();
+    if (this.link.kind === 'live') this.setLink('live', `${this.cameras.size} node(s) · ${this.mode} · ${this.events.size} events`);
+    if (first) this.log(`loaded ${rows.length} historical event(s)`);
+    if (fresh) {
+      this.renderQuietly('feed', () => {
         this.renderFeed();
         this.renderBanner();
         this.renderKpis();
         this.renderActivity();
         this.renderWall();
-      }
-      if (first) this.log(`loaded ${rows.length} historical event(s)`);
-    } catch (err) {
-      this.diagnostics(`event fetch failed: ${err.message}`, true);
+      });
     }
   }
 
@@ -406,12 +579,15 @@ class ControlCenter {
       })
       .then((handle) => {
         this.mode = handle ? 'realtime + polling' : 'polling (2.5s)';
-        this.diagnostics(`feed mode: ${this.mode}`);
         $('#feedMode').textContent = this.mode;
+        // never overwrite an error line with a status line
+        if (this.link.kind === 'live' || this.link.kind === 'init') this.diagnostics(`feed mode: ${this.mode}`);
+        this.renderLinkChip();
       })
       .catch(() => {
         this.mode = 'polling (2.5s)';
         $('#feedMode').textContent = this.mode;
+        this.renderLinkChip();
       });
   }
 
@@ -628,9 +804,9 @@ class ControlCenter {
           ${
             last && last.snapshot_url
               ? `<img src="${esc(last.snapshot_url)}" alt="latest detection frame" loading="lazy"><canvas data-skel="${c.id}"></canvas>`
-              : `<div class="noev">${
-                  live ? (persons ? 'no frame uploaded' : 'waiting for a detection') : 'node offline'
-                }</div>${last ? `<canvas data-skel="${c.id}"></canvas>` : ''}
+              : `<div class="noev">${live ? (persons ? 'no frame uploaded' : 'waiting for a detection') : 'node offline'}</div>${
+                  last ? `<canvas data-skel="${c.id}"></canvas>` : ''
+                }`
           }
           ${last ? `<span class="stamp">${timeAgo(last.created_at, now)}</span>` : ''}
         </div>
@@ -955,5 +1131,5 @@ function esc(s) {
 }
 
 const control = new ControlCenter();
-control.init();
 window.xboxControl = control;
+control.init().catch((err) => control.fatal(err));

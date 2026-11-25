@@ -92,6 +92,22 @@ export class XboxApi {
     return out;
   }
 
+  /**
+   * Turn a failed read into a category the UI can explain and *act* on. Silence is
+   * the failure mode we are fixing: each kind maps to a sentence plus a button.
+   */
+  static classifyError(err) {
+    const msg = String((err && err.message) || err || '');
+    const status = Number(err && err.status) || 0;
+    if (/does not exist|relation .* not found|42P01|PGRST205|Could not find the table/i.test(msg)) return 'no-tables';
+    if (status === 401 || status === 403 || /JWT expired|invalid API key|No API key|error sending request to authenticator/i.test(msg)) return 'denied';
+    if (status === 404 && !/table/i.test(msg)) return 'not-found';
+    if (/Failed to fetch|fetch failed|NetworkError|ERR_|Load failed|timed out|offline/i.test(msg)) return 'unreachable';
+    if (status >= 500) return 'server';
+    if (status >= 400) return `http-${status}`;
+    return 'error';
+  }
+
   // ----------------------------------------------------------------- cameras
 
   /** Create (or idempotently re-claim) a camera node. Returns id + access token. */

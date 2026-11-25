@@ -77,12 +77,20 @@ export function looksLikeSecretKey(key) {
 }
 
 export function loadConfig() {
-  const stored = readStored();
+  // ?reset=1 (or ?reset) wipes stored overrides on load — the escape hatch for
+  // "the dashboard is pointed at the wrong project and I cannot fix it from here",
+  // which is otherwise invisible on a phone with no devtools.
+  const forcedReset = qsp('reset') !== null;
+  if (forcedReset) clearConfig();
+  const stored = forcedReset ? {} : readStored();
   const rawUrl = qsp('sbUrl') || stored.url || DEFAULTS.url;
   const rawKey = qsp('sbKey') || stored.key || DEFAULTS.key;
   const url = normalizeUrl(rawUrl);
   const key = normalizeKey(rawKey);
   const cfg = {
+    resetApplied: forcedReset,
+    // an override is "saved" only when the page itself supplied it
+    hasOverride: Boolean(stored.url || stored.key),
     // An unusable saved value must never brick the app: fall back to the
     // built-in project and say so (dashboard surfaces this as a toast).
     url: url || normalizeUrl(DEFAULTS.url),
@@ -166,4 +174,17 @@ export function deviceLabel() {
 
 export function isSecureContextOk() {
   return window.isSecureContext || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+}
+
+/** Short, recognisable name for a project URL: the ref for Supabase, else the host. */
+export function projectRef(url) {
+  const u = normalizeUrl(url);
+  if (!u) return '';
+  try {
+    const host = new URL(u).hostname;
+    const supa = host.match(/^([a-z0-9]{12,40})\.supabase\.co$/i);
+    return supa ? supa[1] : host;
+  } catch {
+    return '';
+  }
 }

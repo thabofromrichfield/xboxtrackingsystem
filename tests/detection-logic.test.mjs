@@ -11,6 +11,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -227,4 +228,70 @@ test('backend panel: unusable URL and secret key are loud refusals, never silenc
   const secret = resolveBackendSettings(DEFAULTS.url, 'sb_secret_mv7uZabcdefghij');
   assert.equal(secret.secret, true);
   assert.equal(secret.urlInvalid, false, 'the secret-key complaint is the clearer one');
+});
+
+test('a failing backend read is classified so the UI can explain and fix it', () => {
+  const mk = (message, status) => Object.assign(new Error(message), { status });
+  assert.equal(XboxApi.classifyError(mk('could not find the table public.xbox_cameras', 404)), 'no-tables');
+  assert.equal(XboxApi.classifyError(mk('HTTP/1.1 404 Not Found\nrelation public.xbox_events does not exist', 404)), 'no-tables');
+  assert.equal(XboxApi.classifyError(mk('GET /rest/v1/xbox_cameras -> 401 {"message":"JWT expired"}', 401)), 'denied');
+  assert.equal(XboxApi.classifyError(mk('Failed to fetch', 0)), 'unreachable');
+  assert.equal(XboxApi.classifyError(new TypeError('fetch failed')), 'unreachable');
+  assert.equal(XboxApi.classifyError(mk('GET /rest/v1/xbox_cameras -> 404 <html>not found', 404)), 'not-found');
+  assert.equal(XboxApi.classifyError(mk('bad request', 400)), 'http-400');
+});
+
+test('the linked project has a short recognisable name for the status chip', () => {
+  const { projectRef, normalizeUrl, resolveBackendSettings, DEFAULTS } = cfg;
+  assert.equal(projectRef(DEFAULTS.url), 'gfshxhqzsexpsahnuwkw');
+  assert.equal(projectRef('https://other1234567890ab.supabase.co/rest/v1/xbox_cameras'), 'other1234567890ab');
+  assert.equal(projectRef('localhost:54321'), 'localhost', 'a non-Supabase host still gets a readable name');
+  assert.equal(projectRef('   '), '');
+  // the default link is what "use defaults" must restore, chip included
+  assert.equal(normalizeUrl(resolveBackendSettings('', '').url), DEFAULTS.url);
+});
+
+test('every shipped module parses as an ES module, not just as a script', async () => {
+  /**
+   * The bundle is `<script type="module">` with no build step, and there is no
+   * package.json "type" — so `node --check file.js` validates it in *script*
+   * goal, which tolerates mistakes a module will not (an unclosed template
+   * literal once made the whole control center fail to load: no handlers, no
+   * fetches, nothing — the page just sat there). Parse every module the way the
+   * browser will, and check the inline scripts too.
+   */
+  const { spawnSync } = await import('node:child_process');
+  const check = (code, label) => {
+    const r = spawnSync(process.execPath, ['--input-type=module', '--check', '-'], { input: code, encoding: 'utf8' });
+    assert.equal(r.status, 0, `${label} is not valid module syntax: ${(r.stderr || '').split('\n').slice(0, 3).join(' ')}`);
+  };
+  const srcDir = join(here, '..', 'src');
+  const files = readdirSync(srcDir).filter((f) => f.endsWith('.js'));
+  assert.ok(files.length >= 8, 'expected the full module set to be present');
+  for (const f of files) check(readFileSync(join(srcDir, f), 'utf8'), `src/${f}`);
+  for (const f of readdirSync(join(here, '..', 'api')).filter((x) => x.endsWith('.js'))) {
+    check(readFileSync(join(here, '..', 'api', f), 'utf8'), `api/${f}`);
+  }
+  for (const page of ['index.html', 'camera.html']) {
+    const html = readFileSync(join(here, '..', page), 'utf8');
+    for (const [, body] of html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)) {
+      if (body.trim()) check(body, `${page} inline script`);
+    }
+  }
+});
+
+test('page markup and module selectors stay in sync', async () => {
+  // a $('#id') that points at nothing silently no-ops; the panels must exist.
+  const rd = readFileSync;
+  const pairs = [
+    ['index.html', 'src/dashboard.js'],
+    ['camera.html', 'src/camera-node.js'],
+  ];
+  for (const [html, js] of pairs) {
+    const markup = rd(join(here, '..', html), 'utf8');
+    const ids = new Set([...markup.matchAll(/id="([A-Za-z0-9_\-]+)"/g)].map((m) => m[1]));
+    const want = [...rd(join(here, '..', js), 'utf8').matchAll(/\$+\('#([A-Za-z0-9_\-]+)/g)].map((m) => m[1]);
+    const missing = [...new Set(want)].filter((w) => !ids.has(w));
+    assert.deepEqual(missing, [], `${js} looks for #${missing.join(', #')} which ${html} does not define`);
+  }
 });
