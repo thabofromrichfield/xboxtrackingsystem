@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<title>Xbox Tracking · Camera Node</title>
+<meta name="theme-color" content="#04070b">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="description" content="Turns this device's camera into a person-skeleton and motion detection node for the Xbox Tracking System.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23071018'/%3E%3Cpath d='M11 9h10l4 5v9a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2v-9z' fill='none' stroke='%2322ff88' stroke-width='2'/%3E%3Ccircle cx='16' cy='16.5' r='3.4' fill='%2322ff88'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/assets/xbox.css">
+</head>
+<body class="page-node">
+<div id="banner" class="notice" hidden></div>
+
+<header class="topbar compact">
+  <div class="brand">
+    <svg viewBox="0 0 32 32" aria-hidden="true" class="mark">
+      <path d="M16 6v20M7 11l18 10M25 11L7 21" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/>
+      <circle cx="16" cy="6" r="2.7" fill="currentColor"/><circle cx="25" cy="11" r="2" fill="currentColor"/>
+      <circle cx="7" cy="11" r="2" fill="currentColor"/><circle cx="25" cy="21" r="2" fill="currentColor"/>
+      <circle cx="7" cy="21" r="2" fill="currentColor"/><circle cx="16" cy="26" r="2" fill="currentColor"/>
+    </svg>
+    <div class="brandtext">
+      <h1>CAMERA NODE <span>xbox tracking system</span></h1>
+      <p>person skeleton + motion → alerts to control center</p>
+    </div>
+  </div>
+  <div class="chips">
+    <span class="chip off" id="st-capture"><i class="dot"></i><span>idle</span></span>
+    <span class="chip off" id="st-engine"><i class="dot"></i><span>engine idle</span></span>
+    <span class="chip off" id="st-uplink"><i class="dot"></i><span>not linked</span></span>
+    <span class="chip off" id="st-node"><i class="dot"></i><span>unregistered</span></span>
+  </div>
+</header>
+
+<main class="nodelayout" id="app">
+  <section class="stage" id="stage">
+    <div class="videowrap" id="videoWrap">
+      <video id="video" playsinline autoplay muted disablepictureinpicture></video>
+      <canvas id="overlay"></canvas>
+      <div class="idle">
+        <div class="idleinner">
+          <svg viewBox="0 0 24 24"><path d="M4 8h3l1.5-2h7L17 8h3v11H4z" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="12" cy="13" r="3.6" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
+          <p>camera off — press <b>Start monitoring</b> and allow camera access</p>
+        </div>
+      </div>
+    </div>
+    <div class="stagebar">
+      <span class="badge" id="stateBadge" data-state="clear">STANDBY</span>
+      <div class="meters">
+        <div class="meter" id="mPerson" style="--v:0"><i></i><span>pose conf <b id="mPersonVal">0%</b></span></div>
+        <div class="meter warn" id="mMotion" style="--v:0"><i></i><span>motion <b id="mMotionVal">0.000</b></span></div>
+      </div>
+      <div class="statgrid">
+        <span>persons <b id="personsNow">0</b></span>
+        <span>fps <b id="fps">0</b></span>
+        <span>events <b id="evCount">0</b></span>
+        <span>alerts <b id="alertCount">0</b></span>
+        <span>queued <b id="queueCount">0</b></span>
+        <span>hb <b id="lastHb">never</b></span>
+      </div>
+    </div>
+  </section>
+
+  <section class="controls" id="panelNode">
+    <div class="row bigrow">
+      <button class="btn primary xl" id="btnStart">Start monitoring</button>
+      <button class="btn ghost xl" id="btnStop" disabled>Stop</button>
+      <button class="btn ghost" id="btnFull">⤢</button>
+    </div>
+    <div class="row">
+      <button class="btn ghost" id="btnFlip">⇄ flip camera</button>
+      <button class="btn ghost" id="btnTest">send test alert</button>
+      <label class="sw"><input type="checkbox" id="chkOverlay" checked><span>overlay</span></label>
+      <label class="sw"><input type="checkbox" id="chkSnap" checked><span>upload evidence frame</span></label>
+      <label class="sw"><input type="checkbox" id="chkAwake"><span>keep screen awake</span></label>
+    </div>
+
+    <div class="fieldgrid">
+      <label>node name<input id="inpLabel" placeholder="Living room" autocomplete="off"></label>
+      <label>location<input id="inpLocation" placeholder="1st floor, north wall" autocomplete="off"></label>
+      <label>type<select id="selKind">
+        <option value="mobile">mobile camera</option><option value="webcam">webcam</option>
+        <option value="ip-cam">ip camera</option><option value="rtsp">rtsp stream</option>
+        <option value="other">other</option>
+      </select></label>
+      <label>camera device<select id="selDevice"><option value="">auto</option></select></label>
+      <label>pose model<select id="selModel">
+        <option value="lite">lite — fastest, best on phones</option>
+        <option value="full">full — balanced</option>
+        <option value="heavy">heavy — most accurate</option>
+      </select></label>
+      <label>arm state (server)<span class="armstate" id="armState" data-on="1">ARMED</span></label>
+    </div>
+    <div class="row">
+      <button class="btn ghost" id="btnLink">register / re-link this node</button>
+      <button class="btn ghost" id="btnResetLink" title="Forget the locally saved backend URL/key and use the built-in xbox system project">reset backend link</button>
+    </div>
+
+    <div class="tunegrid">
+      <label>person gate <input type="range" id="rngSensitivity" min="0.15" max="0.9" step="0.05"><b id="rngSensitivityOut">—</b><em>minimum skeleton confidence before an alert fires</em></label>
+      <label>motion gate <input type="range" id="rngMotion" min="0.002" max="0.08" step="0.002"><b id="rngMotionOut">—</b><em>changed-pixel ratio (per mille) to count as motion</em></label>
+      <label>re-alert every <input type="range" id="rngCooldown" min="0" max="180" step="5"><b id="rngCooldownOut">—</b><em>while someone stays in frame</em></label>
+      <label>analysis fps <input type="range" id="rngFps" min="1" max="30" step="1"><b id="rngFpsOut">—</b><em>lower = less battery &amp; heat</em></label>
+    </div>
+
+    <a class="btn ghost wide" href="/" target="_blank" rel="noopener">open control center ↗</a>
+  </section>
+
+  <section class="logpanel">
+    <h2>node log</h2>
+    <ul class="log" id="log"></ul>
+  </section>
+</main>
+
+<script type="module" src="/src/camera-node.js"></script>
+</body>
+</html>

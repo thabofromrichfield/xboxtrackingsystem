@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Xbox Tracking · Control Center</title>
+<meta name="theme-color" content="#05070c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="description" content="Control center for the Xbox Tracking System: live person-skeleton and motion alerts from any camera node.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23071018'/%3E%3Cpath d='M16 7v18M8 12l16 8M24 12L8 20' stroke='%2322ff88' stroke-width='2.2' stroke-linecap='round'/%3E%3Ccircle cx='16' cy='7' r='2.6' fill='%2322ff88'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/assets/xbox.css">
+</head>
+<body class="page-control">
+<div id="flash" class="flash"></div>
+
+<header class="topbar">
+  <div class="brand">
+    <svg viewBox="0 0 32 32" aria-hidden="true" class="mark">
+      <path d="M16 6v20M7 11l18 10M25 11L7 21" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/>
+      <circle cx="16" cy="6" r="2.7" fill="currentColor"/><circle cx="25" cy="11" r="2" fill="currentColor"/>
+      <circle cx="7" cy="11" r="2" fill="currentColor"/><circle cx="25" cy="21" r="2" fill="currentColor"/>
+      <circle cx="7" cy="21" r="2" fill="currentColor"/><circle cx="16" cy="26" r="2" fill="currentColor"/>
+    </svg>
+    <div class="brandtext">
+      <h1>XBOX&nbsp;TRACKING <span>control center</span></h1>
+      <p>person skeleton + motion surveillance · supabase backend · <span id="uptime">session —</span></p>
+    </div>
+  </div>
+  <div class="chips">
+    <span class="chip link ok" id="stFeed" role="button" tabindex="0" aria-label="Backend link status — click to open the backend link panel"><i class="dot"></i><span>connecting…</span></span>
+    <span class="chip link" id="stArm" role="button" tabindex="0" aria-label="Node count — click to open the backend link panel"><i class="dot"></i><span>— nodes</span></span>
+    <span class="chip clock" id="clock">—</span>
+  </div>
+  <div class="actions">
+    <span class="armstate" id="armAllState" data-on="1">ARMED</span>
+    <button class="btn ghost" id="btnArmAll">Arm all</button>
+    <button class="btn ghost" id="btnDisarmAll">Disarm all</button>
+    <button class="btn ghost" id="btnSound" data-on="1">🔊 <span>Alert sound on</span></button>
+    <button class="btn ghost" id="btnNotif">🔔 <span>Enable notifications</span></button>
+    <button class="btn primary" id="btnLink">＋ Add camera node</button>
+    <a class="btn ghost" href="/camera" target="_blank" rel="noopener">Camera node ↗</a>
+    <button class="btn icon" id="btnSettings" title="Backend settings">⚙</button>
+  </div>
+</header>
+
+<section class="banner" id="banner" hidden>
+  <div class="bannerinner">
+    <span class="btag"><b id="bannerCount">0</b> active</span>
+    <p id="bannerText">—</p>
+  </div>
+  <div class="bannerbtns">
+    <input type="hidden" id="bannerIds">
+    <button class="btn danger" id="btnSnooze">Snooze audio 10m</button>
+    <button class="btn primary" id="btnAckAll">Acknowledge all</button>
+  </div>
+</section>
+
+<section class="sysnote" id="sysNote" hidden role="status" aria-live="polite">
+  <div class="sysnote-copy">
+    <b id="sysNoteTitle">backend</b>
+    <p id="sysNoteText">—</p>
+  </div>
+  <div class="bannerbtns">
+    <button class="mini" id="btnSysClose">dismiss</button>
+    <button class="btn ghost" id="btnSysRetry">retry now</button>
+    <button class="btn ghost" id="btnSysDefaults">use the xbox system project</button>
+    <button class="btn primary" id="btnSysLink">open backend link</button>
+  </div>
+</section>
+
+<main class="layout">
+  <section class="col main">
+    <div class="kpis">
+      <article class="kpi"><span>nodes online</span><b id="kpiOnline">0/0</b><i>heartbeat &lt; 45s</i></article>
+      <article class="kpi" id="kpiPersonsCard"><span>persons in frame now</span><b id="kpiPersons" data-hot="0">0</b><i>across all live nodes</i></article>
+      <article class="kpi alert"><span>alerts last hour</span><b id="kpiAlerts">0</b><i>person + motion</i></article>
+      <article class="kpi"><span>events last 24h</span><b id="kpiEvents">0</b><i>stored in supabase</i></article>
+      <article class="kpi"><span>avg detection conf.</span><b id="kpiConf">—</b><i>skeleton gate</i></article>
+    </div>
+
+    <div class="panel">
+      <header class="ph">
+        <h2>Camera wall</h2>
+        <p>live node state · retune a node and it applies on the device within ~12s</p>
+      </header>
+      <div class="wall" id="wall"><div class="empty">loading nodes…</div></div>
+    </div>
+
+    <div class="panel">
+      <header class="ph">
+        <h2>Activity · last 24 hours</h2>
+        <p id="activityMax">—</p>
+      </header>
+      <canvas id="activity" height="96"></canvas>
+      <div class="legend"><span><i class="sw-p"></i>person alerts</span><span><i class="sw-m"></i>motion alerts</span></div>
+    </div>
+
+    <div class="panel diag">
+      <header class="ph">
+        <h2>Diagnostics</h2>
+        <p id="diagMsg">idle</p>
+      </header>
+      <div class="diagbar">
+        <span>feed: <b id="feedMode">polling</b></span>
+        <span>last sync: <b id="lastSync">—</b></span>
+        <button class="mini" id="btnTestEvent">inject test alert</button>
+        <button class="mini" id="btnPurge">purge all events</button>
+      </div>
+      <ul class="log" id="diagLog"></ul>
+    </div>
+  </section>
+
+  <aside class="col side">
+    <div class="panel feedpanel">
+      <header class="ph">
+        <h2>Live alert feed</h2>
+        <p><b id="feedCount">0</b> events</p>
+      </header>
+      <div class="filters" id="filters">
+        <button class="chip on" data-f="all">all</button>
+        <button class="chip" data-f="alerts">alerts</button>
+        <button class="chip" data-f="person">person</button>
+        <button class="chip" data-f="motion">motion</button>
+        <button class="chip" data-f="clear">cleared</button>
+        <button class="chip" data-f="unack">unacked</button>
+      </div>
+      <input class="search" id="search" placeholder="filter by node, engine, device…" autocomplete="off">
+      <ul class="feed" id="feed"><li class="empty">loading events…</li></ul>
+    </div>
+
+    <div class="panel" id="insight" hidden>
+      <header class="ph"><h2>Evidence</h2><p id="insightTitle">—</p></header>
+      <div class="insight">
+        <img id="insightImg" alt="detection evidence frame">
+        <canvas id="insightCanvas"></canvas>
+      </div>
+      <div id="insightBody"></div>
+    </div>
+  </aside>
+</main>
+
+<div class="modal" id="linkPanel" hidden>
+  <div class="sheet">
+    <header class="ph"><h2>Add / link a camera node</h2><button class="mini" id="btnLinkClose">close</button></header>
+    <p class="hint">Register the node here, then open the link below on the phone, tablet or laptop you want to point at the room. Its camera does the detection; alerts land on this page.</p>
+    <div class="formgrid">
+      <label>node name<input id="linkLabel" placeholder="Living room" value="Living room"></label>
+      <label>type<select id="linkKind">
+        <option value="mobile">mobile camera</option><option value="webcam">webcam</option>
+        <option value="ip-cam">ip camera</option><option value="rtsp">rtsp stream</option>
+        <option value="bridge">bridge (api)</option><option value="other">other</option>
+      </select></label>
+      <label>location<input id="linkLocation" placeholder="e.g. 1st floor, north wall"></label>
+    </div>
+    <button class="btn primary wide" id="btnLinkCreate">register node &amp; generate link</button>
+    <label class="fieldline">node link (open on the device)<span><input id="linkOut" readonly><button class="mini" id="btnCopyLink">Copy link</button></span></label>
+    <label class="fieldline">access token (for the REST/bridge ingest endpoint)<input id="linkToken" readonly></label>
+    <div class="qrwrap"><img id="linkQr" alt="QR code for the node link" hidden></div>
+    <p class="hint small">Tip: on iPhone/Android use “Add to Home Screen” on the node page — it then behaves like a kiosk app and keeps monitoring.</p>
+  </div>
+</div>
+
+<div class="modal" id="settingsPanel" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+    <header class="ph"><h2 id="settingsTitle">Backend link</h2><button class="mini" id="btnSettingsClose">close ✕</button></header>
+    <p class="hint">Point this control center at your Supabase project. <b>Leave both fields empty</b> to use the built-in <b>xbox system</b> project (<code>gfshxhqzsexpsahnuwkw</code>) — it is already wired up, so you normally do not need to change anything here.</p>
+    <label class="fieldline">project URL (or just the 20-char ref)<input id="setUrl" placeholder="https://REF.supabase.co   ·   gfshxhqzsexpsahnuwkw" autocomplete="off" spellcheck="false" autocapitalize="off"></label>
+    <label class="fieldline">publishable / anon key<input id="setKey" placeholder="sb_publishable_…   ·   eyJhbGciOi…" autocomplete="off" spellcheck="false" autocapitalize="off"></label>
+    <p class="fieldnote" id="setMsg" role="status" aria-live="polite">current: —</p>
+    <div class="btnrow">
+      <button class="btn primary" id="btnSettingsSave">test &amp; relink</button>
+      <button class="btn ghost" id="btnSettingsTest">test only</button>
+      <button class="btn ghost" id="btnSettingsReset">use defaults</button>
+    </div>
+    <p class="hint small">The <b>service_role / sb_secret</b> key is refused here on purpose — a browser key can only ever be the publishable one. The secret key lives in Vercel env vars for <code>/api/event</code>.</p>
+  </div>
+</div>
+
+<script type="module" src="/src/dashboard.js"></script>
+<div id="toasts" class="toasts" role="status" aria-live="polite" aria-atomic="false"></div>
+</body>
+</html>
